@@ -14,6 +14,12 @@ PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
 
 echo "Found PostgreSQL version: ${PG_VERSION}"
 
+run_schema_init () {
+    echo "Ensuring strategy game schema is initialized..."
+    # Pass connection context via env (used by init_schema.sh defaults if not set)
+    DB_NAME="${DB_NAME}" DB_USER="${DB_USER}" DB_PORT="${DB_PORT}" bash ./init_schema.sh
+}
+
 # Check if PostgreSQL is already running on the specified port
 if sudo -u postgres ${PG_BIN}/pg_isready -p ${DB_PORT} > /dev/null 2>&1; then
     echo "PostgreSQL is already running on port ${DB_PORT}!"
@@ -23,12 +29,15 @@ if sudo -u postgres ${PG_BIN}/pg_isready -p ${DB_PORT} > /dev/null 2>&1; then
     echo ""
     echo "To connect to the database, use:"
     echo "psql -h localhost -U ${DB_USER} -d ${DB_NAME} -p ${DB_PORT}"
-    
+
     # Check if connection info file exists
     if [ -f "db_connection.txt" ]; then
         echo "Or use: $(cat db_connection.txt)"
     fi
-    
+
+    # Ensure schema exists even on reboots where server is already running.
+    run_schema_init
+
     echo ""
     echo "Script stopped - server already running."
     exit 0
@@ -38,10 +47,14 @@ fi
 if pgrep -f "postgres.*-p ${DB_PORT}" > /dev/null 2>&1; then
     echo "Found existing PostgreSQL process on port ${DB_PORT}"
     echo "Attempting to verify connection..."
-    
+
     # Try to connect and verify the database exists
     if sudo -u postgres ${PG_BIN}/psql -p ${DB_PORT} -d ${DB_NAME} -c '\q' 2>/dev/null; then
         echo "Database ${DB_NAME} is accessible."
+
+        # Ensure schema exists even if pg_isready didn't respond earlier.
+        run_schema_init
+
         echo "Script stopped - server already running."
         exit 0
     fi
@@ -106,10 +119,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO ${DB_USER};
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TYPES TO ${DB_USER};
 
--- If you want the user to be able to create objects without restrictions,
--- you can make them the owner of the public schema (optional but effective)
--- ALTER SCHEMA public OWNER TO ${DB_USER};
-
 -- Alternative: Grant all privileges on schema public to the user
 GRANT ALL ON SCHEMA public TO ${DB_USER};
 
@@ -128,6 +137,9 @@ GRANT CREATE ON SCHEMA public TO ${DB_USER};
 -- Show current permissions for debugging
 \dn+ public
 EOF
+
+# Initialize schema for the strategy game (tables, indexes, triggers, etc.)
+run_schema_init
 
 # Save connection command to a file
 echo "psql postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}" > db_connection.txt
