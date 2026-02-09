@@ -1,0 +1,4 @@
+{
+    "command": "cd db_visualizer && npm install",
+    "working_directory": "/home/kavia/workspace/code-generation/strategic-grid-battle-317968-317984/strategy_game_database"
+}
